@@ -1,0 +1,6 @@
+Import("*")
+
+SimObject("ImbalanceDetector.py",
+sim_objects=["ImbalanceDetector"]),
+Source("imbalance_detector.cc"),
+DebugFlag("Imbalance", "Detector de desequilibrio")
