@@ -10,4 +10,5 @@ class ImbalanceDetector(SimObject):
     cpus = VectorParam.BaseCPU("CPUs observadas, na ordem dos contextos")
     period = Param.Latency("10us", "Período de amostragem")
     series_file = Param.String("", "CSV da série temporal; vazio desliga")
-    # TODO(aluno): cv_threshold e min_active (tabela de parâmetros).
+    cv_threshold = Param.Float(0.2, "CV acima do qual um intervalo conta como desequilibrado")
+    min_active = Param.Unsigned(2, "Mínimo de nucleos com instruções para calcular CV")

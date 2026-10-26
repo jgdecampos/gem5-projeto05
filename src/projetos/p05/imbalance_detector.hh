@@ -43,6 +43,8 @@ class ImbalanceDetector : public SimObject
 
     const std::vector<BaseCPU *> cpus;
     const Tick period;
+    const double cvThreshold;
+    const unsigned minActive;
     std::vector<CoreState> cores;
     Tick intervalStart = 0; // início do intervalo corrente
     Tick roiStart = 0;      // tick do último reset
