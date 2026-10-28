@@ -31,14 +31,21 @@ class ImbalanceDetector : public SimObject
     void onSleep(unsigned core, bool sleeping);
 
   private:
-    /** Estado de um núcleo: TODO(aluno) completar. */
+    /* Estado de um núcleo pode ser identificado por:
+       - instsInInterval: um acumulador das instruções que o núcleo
+         completou a cada intervalo do tipo int;
+       - activeInInterval: quantidade de tempo que o núcleo esteve
+         ativo a cada intervalo do tipo Tick;
+       - awake: identifica se o núcleo está executando (true) ou bloqueado/dormindo
+	 naquele momento (false), representado por um tipo bool;
+       - awakeSince: guarda o tick que o núcleo acordou pela última vez.
+       */
     struct CoreState
     {
         uint64_t instsInInterval = 0;
         Tick activeInInterval = 0;
         bool awake = false;
         Tick awakeSince = 0;
-        // TODO(aluno): o que mais é preciso para fechar um intervalo?
     };
 
     const std::vector<BaseCPU *> cpus;

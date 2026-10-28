@@ -16,6 +16,8 @@ Resumo resume(const std::vector<double> &x)
     return {};
 }
 
+
+
 ImbalanceDetector::ImbalanceDetector(const Params &p)
     : SimObject(p),
       cpus(p.cpus.begin(), p.cpus.end()),
@@ -122,6 +124,7 @@ ImbalanceDetector::writeSeriesRow(unsigned core, bool partial,
     // intervalo,tick_ini,tick_fim,parcial,cpu,insts,ativos,amostra,ipc_ef
 }
 
+
 ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
                                                 unsigned n)
     : statistics::Group(parent), // Inicializacao das estatisticas
@@ -146,7 +149,7 @@ ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
 {
     // TODO(aluno): dimensionar os vetores com init(n), nomear posições com
     //              subname(i, ...) e inicializar limites de intervalCV.
-    // Dimensionamento dos vetores  
+    // Dimensionamento dos vetores
     insts.init(n);
     activeTicks.init(n);
     activeSamples.init(n);

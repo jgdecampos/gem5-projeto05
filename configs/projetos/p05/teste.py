@@ -28,7 +28,7 @@ for cpu in system.cpu:
     cpu.workload = process
     cpu.createThreads()
 
-system.detector = ImbalanceDetector(cpus=system.cpu, period="0ns")
+system.detector = ImbalanceDetector(cpus=system.cpu, period="10us")
 
 root = Root(full_system=False, system=system)
 m5.instantiate()
