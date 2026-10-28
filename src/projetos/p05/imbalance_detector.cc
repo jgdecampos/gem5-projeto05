@@ -12,10 +12,30 @@ namespace gem5
 struct Resumo { double media, max, min, cv; unsigned n; };
 Resumo resume(const std::vector<double> &x)
 {
-    // TODO(aluno)
-    return {};
-}
+    Resumo r{0, 0, 0, 0, 0};
+    if (x.empty()) return r;
 
+    r.n = x.size();
+    double soma = 0;
+    for (double v : x) soma += v;
+    r.media = soma / r.n;
+
+    r.max = x[0];
+    r.min = x[0];
+    for (double v : x) {
+        if (v > r.max) r.max = v;
+        if (v < r.min) r.min = v;
+    }
+
+    // Desvio padrão POPULACIONAL (divisor P, não P-1)
+    double var = 0;
+    for (double v : x) var += (v - r.media) * (v - r.media);
+    var /= r.n;
+    double sigma = std::sqrt(var);
+
+    r.cv = (r.media != 0) ? sigma / r.media : 0;
+    return r;
+}
 
 
 ImbalanceDetector::ImbalanceDetector(const Params &p)
@@ -29,58 +49,82 @@ ImbalanceDetector::ImbalanceDetector(const Params &p)
                   name() + ".sampleEvent"),
       stats(this, p.cpus.size())
 {
-    // TODO(aluno): validações e abertura do arquivo da série.
-    // if (!p.series_file.empty()) series = simout.create(p.series_file);
-    // TODO(aluno): escrever o cabeçalho do CSV.
-    // Validacao
+    // Validações
     fatal_if(cpus.empty(), "%s: A lista de CPUs observadas nao pode estar vazia", name());
     fatal_if(period == 0, "%s: O periodo de amostragem deve ser maior que zero", name());
 }
 
 ImbalanceDetector::~ImbalanceDetector() = default;
 
-// TODO(aluno): fechar o arquivo com simout.close(series).
-
 
 void
 ImbalanceDetector::startup()
 {
     intervalStart = roiStart = curTick();
-    // TODO(aluno): estado inicial 'awake' de cada núcleo a partir de
-    //              getContext(0)->status(); agendar o primeiro evento.
+
+    // Estado inicial 'awake' de cada núcleo
+    for (unsigned i = 0; i < cpus.size(); i++) {
+        ThreadContext *tc = cpus[i]->getContext(0);
+        cores[i].awake = (tc->status() == ThreadContext::Active);
+        if (cores[i].awake)
+            cores[i].awakeSince = curTick();
+    }
+
+    // Agenda o primeiro evento para daqui a um período
+    schedule(sampleEvent, curTick() + period);
 }
 
 void
 ImbalanceDetector::resetStats()
 {
     SimObject::resetStats();
-    // TODO(aluno): roiStart = intervalStart = curTick(); zerar os
-    //              acumuladores; awakeSince = curTick() nos núcleos
-    //              acordados; intervalIndex = 0;
-    //              reschedule(sampleEvent, curTick() + period, true).
+
+    // O programa chamou m5_reset_stats(): reinicia a região de interesse
+    roiStart = intervalStart = curTick();
+    intervalIndex = 0;
+
+    // Zera os acumuladores de cada núcleo
+    for (unsigned i = 0; i < cores.size(); i++) {
+        cores[i].instsInInterval = 0;
+        cores[i].activeInInterval = 0;
+        if (cores[i].awake)
+            cores[i].awakeSince = curTick();
+    }
+
+    // Reagenda o evento para exatamente um período depois do reset
+    reschedule(sampleEvent, curTick() + period, true);
 }
 
 void
 ImbalanceDetector::regProbeListeners()
 {
-    // TODO(aluno): para cada CPU i, guardar em listeners o resultado
-    //              de cpus[i]->getProbeManager()->connect<L>(this, i)
-    //              para L = InstListener e L = SleepListener.
+    // Etapa 3 - será implementado depois
+    for (unsigned i = 0; i < cpus.size(); i++) {
+        listeners.push_back(cpus[i]->getProbeManager()->connect<InstListener>(this, i));
+        listeners.push_back(cpus[i]->getProbeManager()->connect<SleepListener>(this, i));
+    }
 }
 
 void
 ImbalanceDetector::onInsts(unsigned core, uint64_t n)
 {
-    // TODO(aluno): somar n ao acumulador de instruções do núcleo no intervalo.
+    // Etapa 3 - será implementado depois
+    cores[core].instsInInterval += n;
 }
 
 void
 ImbalanceDetector::onSleep(unsigned core, bool sleeping)
 {
     CoreState &c = cores[core];
-    // TODO(aluno): regra da figura de contabilidade. Uma notificação
-    //              repetida (dormir já dormindo) não deve somar nada;
-    //              conte-a numa estatística de diagnóstico.
+    // Etapa 3 - será implementado depois
+    const Tick now = curTick();
+    if (sleeping && c.awake) {
+        c.activeInInterval += now - c.awakeSince;
+        c.awake = false;
+    } else if (!sleeping && !c.awake) {
+        c.awake = true;
+        c.awakeSince = now;
+    }
 }
 
 void
@@ -90,25 +134,65 @@ ImbalanceDetector::closeInterval(bool partial)
     DPRINTF(Imbalance, "intervalo %llu [%llu, %llu)%s\n",
             intervalIndex, intervalStart, now, partial ? " parcial" : "");
 
+    // Fecha o treço acordado em andamento (contagem de ticks ativos)
     std::vector<double> ipc(cores.size());
     for (unsigned i = 0; i < cores.size(); i++) {
         CoreState &c = cores[i];
-        // TODO(aluno): fechar o trecho acordado em andamento
-        //              (figura de contabilidade).
-        // TODO(aluno): somar c.instsInInterval e c.activeInInterval
-        //              aos vetores; amostra instantânea de status().
-        // TODO(aluno): ipc[i] = instruções / ciclos do intervalo,
-        //              com os ciclos do relógio de cpus[i].
+
+        // Se o núcleo está acordado no fim do intervalo,
+        // soma o tempo desde awakeSince até agora
+        if (c.awake) {
+            c.activeInInterval += now - c.awakeSince;
+            c.awakeSince = now; // reinicia para o próximo intervalo
+        }
+
+        // Ticks totais do intervalo para este núcleo
+        Tick ticks_intervalo = now - intervalStart;
+        unsigned long long ciclos = ticks_intervalo / cpus[i]->clockPeriod();
+
+        // Acumula nos vetores globais
+        stats.insts[i] += c.instsInInterval;
+        stats.activeTicks[i] += c.activeInInterval;
+
+        // Amostra instantânea de ocupação
+        if (c.awake)
+            stats.activeSamples[i]++;
+
+        // IPC efetivo do intervalo (instruções / ciclos do intervalo)
+        ipc[i] = (ciclos > 0) ? (double)c.instsInInterval / ciclos : 0;
+
+        // Zera acumuladores para o próximo intervalo
+        c.instsInInterval = 0;
+        c.activeInInterval = 0;
     }
-    // TODO(aluno): se ao menos min_active núcleos têm instruções,
-    //              amostrar o CV em intervalCV e comparar com
-    //              cv_threshold; senão, não amostrar.
-    // TODO(aluno): série temporal (etapa 5); zerar acumuladores.
+
+    // CV do intervalo (se min_active núcleos têm instruções)
+    unsigned n_ativos = 0;
+    for (unsigned i = 0; i < cores.size(); i++) {
+        if (stats.insts[i] > 0) n_ativos++;
+    }
+    if (n_ativos >= minActive) {
+        double cv_intervalo = resume(ipc).cv;
+        stats.intervalCV.sample(cv_intervalo);
+        if (cv_intervalo > cvThreshold)
+            stats.imbalancedIntervals++;
+    }
 
     stats.intervals++;
     intervalIndex++;
     intervalStart = now;
-    if (!partial /* TODO(aluno): e nem todos os contextos Halted */)
+
+    // Verifica se todos os contextos estão Halted
+    bool todosHalted = true;
+    for (unsigned i = 0; i < cpus.size(); i++) {
+        ThreadContext *tc = cpus[i]->getContext(0);
+        if (tc->status() != ThreadContext::Halted) {
+            todosHalted = false;
+            break;
+        }
+    }
+
+    if (!partial && !todosHalted)
         schedule(sampleEvent, now + period);
 }
 
@@ -120,14 +204,15 @@ ImbalanceDetector::writeSeriesRow(unsigned core, bool partial,
     if (!series)
         return;
     std::ostream &os = *series->stream();
-    // TODO(aluno): uma linha com as colunas do formato da Listagem 14.11:
-    // intervalo,tick_ini,tick_fim,parcial,cpu,insts,ativos,amostra,ipc_ef
+    os << core << "," << ini << "," << fim << "," << (partial ? 1 : 0)
+       << "," << (amostraAtiva ? 1 : 0) << "," << ipc << "\n";
 }
 
 
 ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
                                                 unsigned n)
-    : statistics::Group(parent), // Inicializacao das estatisticas
+    : statistics::Group(parent),
+      parent(parent)
       ADD_STAT(insts, statistics::units::Count::get(), "Instrucoes completadas na regiao, por nucleo"),
       ADD_STAT(activeTicks, statistics::units::Tick::get(), "Ticks com a CPU acordada na regiao, por nucleo"),
       ADD_STAT(activeSamples, statistics::units::Count::get(), "Amostras instantaneas em que o contexto estava ativo"),
@@ -145,11 +230,7 @@ ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
       ADD_STAT(imbalance, statistics::units::Ratio::get(), "Maximo / Media de activeTicks"),
       ADD_STAT(intervalCV, statistics::units::Ratio::get(), "Distribuicao do CV de IPC efetivo por intervalo"),
       ADD_STAT(imbalancedIntervals, statistics::units::Count::get(), "Intervalos com CV acima de cv_threshold")
-      // TODO(aluno): inicializar todas as estatísticas da Tabela 14.2 com ADD_STAT
 {
-    // TODO(aluno): dimensionar os vetores com init(n), nomear posições com
-    //              subname(i, ...) e inicializar limites de intervalCV.
-    // Dimensionamento dos vetores
     insts.init(n);
     activeTicks.init(n);
     activeSamples.init(n);
@@ -157,7 +238,6 @@ ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
     ipcEff.init(n);
     ipcActive.init(n);
 
-    // Nomenclatura das posições
     for (unsigned i = 0; i < n; i++) {
         std::string sub = csprintf("cpu%d", i);
         insts.subname(i, sub);
@@ -168,21 +248,57 @@ ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
         ipcActive.subname(i, sub);
     }
 
-    // Limites da distribuição
     double max_cv = std::sqrt(n - 1.0);
     intervalCV.init(0.0, max_cv, 0.05);
-
 }
 
 void
 ImbalanceDetector::DetectorStats::preDumpStats()
 {
     statistics::Group::preDumpStats();
-    // TODO(aluno): o detector fecha o intervalo parcial ANTES deste
-    //              cálculo (cuidado com a ordem das chamadas).
-    // TODO(aluno): occupancy, ipcEff e ipcActive por núcleo; resumos
-    //              de ipcEff (média, máx, mín, CV), CV de ipcActive,
-    //              de insts e de activeTicks; imbalance.
+
+    unsigned n = parent->cpus.size();
+
+    // occupancy, ipcEff e ipcActive por núcleo
+    Tick ticks_roi = curTick() - parent->roiStart;
+    for (unsigned i = 0; i < n; i++) {
+        double oticks = ticks_roi / cpus[i]->clockPeriod();
+        occupancy[i] = (oticks > 0) ? (double)activeTicks[i] / oticks : 0;
+        ipcEff[i] = (oticks > 0) ? (double)insts[i] / oticks : 0;
+        ipcActive[i] = (activeTicks[i] > 0) ? (double)insts[i] / (activeTicks[i] / cpus[i]->clockPeriod()) : 0;
+    }
+
+    // Resumos de ipcEff
+    std::vector<double> v_ipcEff(n);
+    for (unsigned i = 0; i < n; i++) v_ipcEff[i] = ipcEff[i];
+    Resumo r = resume(v_ipcEff);
+    ipcMean = r.media;
+    ipcMax = r.max;
+    ipcMin = r.min;
+    ipcCV = r.cv;
+
+    // CV de ipcActive
+    std::vector<double> v_ipcActive(n);
+    for (unsigned i = 0; i < n; i++) v_ipcActive[i] = ipcActive[i];
+    ipcActiveCV = resume(v_ipcActive).cv;
+
+    // CV de insts e activeTicks
+    std::vector<double> v_insts(n), v_act(n);
+    for (unsigned i = 0; i < n; i++) {
+        v_insts[i] = insts[i];
+        v_act[i] = activeTicks[i];
+    }
+    instsCV = resume(v_insts).cv;
+    activeCV = resume(v_act).cv;
+
+    // imbalance = max / media de activeTicks
+    double max_at = 0, soma_at = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (v_act[i] > max_at) max_at = v_act[i];
+        soma_at += v_act[i];
+    }
+    double media_at = soma_at / n;
+    imbalance = (media_at > 0) ? max_at / media_at : 0;
 }
 
 } // namespace gem5

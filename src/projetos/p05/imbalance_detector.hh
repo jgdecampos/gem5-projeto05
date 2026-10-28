@@ -70,6 +70,8 @@ class ImbalanceDetector : public SimObject
         DetectorStats(ImbalanceDetector *parent, unsigned n);
         void preDumpStats() override;
 
+        ImbalanceDetector *parent;
+
         statistics::Vector insts;
         statistics::Vector activeTicks;
         statistics::Vector activeSamples;
