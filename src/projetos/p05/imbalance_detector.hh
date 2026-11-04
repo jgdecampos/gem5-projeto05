@@ -32,12 +32,12 @@ class ImbalanceDetector : public SimObject
 
   private:
     /* Estado de um núcleo pode ser identificado por:
-       - instsInInterval: um acumulador das instruções que o núcleo
-         completou a cada intervalo do tipo int;
+       - instsInInterval: acumulador das instruções que o núcleo
+         completou a cada intervalo;
        - activeInInterval: quantidade de tempo que o núcleo esteve
-         ativo a cada intervalo do tipo Tick;
-       - awake: identifica se o núcleo está executando (true) ou bloqueado/dormindo
-	 naquele momento (false), representado por um tipo bool;
+         ativo a cada intervalo;
+       - awake: identifica se o núcleo está executando (true) ou
+         bloqueado/dormindo naquele momento (false);
        - awakeSince: guarda o tick que o núcleo acordou pela última vez.
        */
     struct CoreState
@@ -67,11 +67,9 @@ class ImbalanceDetector : public SimObject
 
     struct DetectorStats : public statistics::Group
     {
-        ImbalanceDetector *det;
+        ImbalanceDetector *parent;
         DetectorStats(ImbalanceDetector *parent, unsigned n);
         void preDumpStats() override;
-
-        ImbalanceDetector *parent;
 
         statistics::Vector insts;
         statistics::Vector activeTicks;

@@ -110,7 +110,7 @@ ImbalanceDetector::resetStats()
 void
 ImbalanceDetector::regProbeListeners()
 {
-    // Etapa 3 - será implementado depois
+    // Conecta ouvintes de instruções e sono a cada CPU
     for (unsigned i = 0; i < cpus.size(); i++) {
         listeners.push_back(cpus[i]->getProbeManager()->connect<InstListener>(this, i));
         listeners.push_back(cpus[i]->getProbeManager()->connect<SleepListener>(this, i));
@@ -120,7 +120,6 @@ ImbalanceDetector::regProbeListeners()
 void
 ImbalanceDetector::onInsts(unsigned core, uint64_t n)
 {
-    // Etapa 3 - será implementado depois
     cores[core].instsInInterval += n;
 }
 
@@ -128,7 +127,6 @@ void
 ImbalanceDetector::onSleep(unsigned core, bool sleeping)
 {
     CoreState &c = cores[core];
-    // Etapa 3 - será implementado depois
     const Tick now = curTick();
     if (sleeping && c.awake) {
         c.activeInInterval += now - c.awakeSince;
@@ -146,7 +144,7 @@ ImbalanceDetector::closeInterval(bool partial)
     DPRINTF(Imbalance, "intervalo %llu [%llu, %llu)%s\n",
             intervalIndex, intervalStart, now, partial ? " parcial" : "");
 
-    // Fecha o treço acordado em andamento (contagem de ticks ativos)
+    // Fecha o trecho acordado em andamento (contagem de ticks ativos)
     std::vector<double> ipc(cores.size());
     for (unsigned i = 0; i < cores.size(); i++) {
         CoreState &c = cores[i];
@@ -227,7 +225,7 @@ ImbalanceDetector::writeSeriesRow(unsigned core, bool partial,
 ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
                                                 unsigned n)
     : statistics::Group(parent),
-      det(parent),
+      parent(parent),
       ADD_STAT(insts, statistics::units::Count::get(), "Instrucoes completadas na regiao, por nucleo"),
       ADD_STAT(activeTicks, statistics::units::Tick::get(), "Ticks com a CPU acordada na regiao, por nucleo"),
       ADD_STAT(activeSamples, statistics::units::Count::get(), "Amostras instantaneas em que o contexto estava ativo"),
@@ -277,10 +275,11 @@ ImbalanceDetector::DetectorStats::preDumpStats()
     // occupancy, ipcEff e ipcActive por núcleo
     Tick ticks_roi = curTick() - parent->roiStart;
     for (unsigned i = 0; i < n; i++) {
-        double oticks = ticks_roi / det->cpus[i]->clockPeriod();
+        double oticks = ticks_roi / parent->cpus[i]->clockPeriod();
         occupancy[i] = (oticks > 0) ? (double)activeTicks[i].value() / oticks : 0;
         ipcEff[i] = (oticks > 0) ? (double)insts[i].value() / oticks : 0;
-        ipcActive[i] = (activeTicks[i].value() > 0) ? (double)insts[i].value() / (activeTicks[i].value() / det->cpus[i]->clockPeriod()) : 0;
+        double aticks_ciclos = activeTicks[i].value() / parent->cpus[i]->clockPeriod();
+        ipcActive[i] = (aticks_ciclos > 0) ? (double)insts[i].value() / aticks_ciclos : 0;
     }
 
     // Resumos de ipcEff

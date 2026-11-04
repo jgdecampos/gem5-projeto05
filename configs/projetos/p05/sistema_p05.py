@@ -1,6 +1,13 @@
+import sys
+import os
 import argparse
 import m5
 from m5.objects import *
+
+# Adiciona o diretório src ao path para encontrar o ImbalanceDetector
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__),
+                                                '../../../src')))
+from projetos.p05.ImbalanceDetector import ImbalanceDetector
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--cores", type=int, default=4)
@@ -24,29 +31,29 @@ system.clk_domain.voltage_domain = VoltageDomain()
 system.mem_mode = "timing"
 system.mem_ranges = [AddrRange("512MB")]
 
-# Barramento de sistema
+# Barramento de sistema (memória)
 system.membus = SystemXBar()
 system.system_port = system.membus.cpu_side_ports
 
-# CPUs
+# Barramento L2 (entre L1s e L2)
+system.l2bus = L2XBar()
+
+# CPUs com L1 privadas conectadas ao L2 bus
 if args.cpu == "o3":
     system.cpu = [X86O3CPU(cpu_id=i) for i in range(args.cores)]
 else:
     system.cpu = [X86TimingSimpleCPU(cpu_id=i) for i in range(args.cores)]
 
-# L1 privadas + L2 compartilhada (hierarquia clássica)
 for i in range(args.cores):
     cpu = system.cpu[i]
-    cpu.icache_port = system.membus.cpu_side_ports
-    cpu.dcache_port = system.membus.cpu_side_ports
 
-    # L1 simples (usa caches genéricas)
+    # L1 privadas (instruction e data)
     cpu.icache = L1ICache(size="32kB", assoc=8)
     cpu.dcache = L1DCache(size="32kB", assoc=8)
     cpu.icache.connectCPU(cpu)
     cpu.dcache.connectCPU(cpu)
-    cpu.icache.connectBus(system.membus)
-    cpu.dcache.connectBus(system.membus)
+    cpu.icache.connectBus(system.l2bus)
+    cpu.dcache.connectBus(system.l2bus)
 
     # Controladores de interrupção (x86 precisa)
     cpu.createInterruptController()
@@ -54,16 +61,10 @@ for i in range(args.cores):
     cpu.interrupts[0].int_requestor = system.membus.cpu_side_ports
     cpu.interrupts[0].int_responder = system.membus.mem_side_ports
 
-# L2 compartilhada
-system.l2bus = L2XBar()
+# L2 compartilhada: conecta no l2bus (lado CPU) e no membus (lado memória)
 system.l2cache = L2Cache(size="256kB", assoc=8)
 system.l2cache.connectCPUSideBus(system.l2bus)
 system.l2cache.connectMemSideBus(system.membus)
-
-# Conectar L1s no L2 bus (via barramento de ligação)
-for i in range(args.cores):
-    system.cpu[i].icache.connectBus(system.l2bus)
-    system.cpu[i].dcache.connectBus(system.l2bus)
 
 # Controlador de memória
 system.mem_ctrl = MemCtrl()
