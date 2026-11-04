@@ -53,9 +53,20 @@ ImbalanceDetector::ImbalanceDetector(const Params &p)
     // Validações
     fatal_if(cpus.empty(), "%s: A lista de CPUs observadas nao pode estar vazia", name());
     fatal_if(period == 0, "%s: O periodo de amostragem deve ser maior que zero", name());
+
+    // Abre arquivo da série temporal se solicitado
+    if (!p.series_file.empty()) {
+        series = simout.create(p.series_file);
+        std::ostream &os = *series->stream();
+        os << "intervalo,tick_ini,tick_fim,parcial,cpu,insts,ativos,amostra,ipc_ef\n";
+    }
 }
 
-ImbalanceDetector::~ImbalanceDetector() = default;
+ImbalanceDetector::~ImbalanceDetector()
+{
+    if (series)
+        simout.close(series);
+}
 
 
 void
@@ -161,6 +172,9 @@ ImbalanceDetector::closeInterval(bool partial)
 
         // IPC efetivo do intervalo (instruções / ciclos do intervalo)
         ipc[i] = (ciclos > 0) ? (double)c.instsInInterval / ciclos : 0;
+
+        // Grava linha da série temporal para este núcleo
+        writeSeriesRow(i, partial, intervalStart, now, ipc[i], c.awake);
 
         // Zera acumuladores para o próximo intervalo
         c.instsInInterval = 0;
