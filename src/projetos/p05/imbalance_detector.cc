@@ -1,5 +1,6 @@
 #include "projetos/p05/imbalance_detector.hh"
 
+#include "cpu/thread_context.hh"
 #include "base/logging.hh"
 #include "base/trace.hh"
 #include "debug/Imbalance.hh"
@@ -169,7 +170,7 @@ ImbalanceDetector::closeInterval(bool partial)
     // CV do intervalo (se min_active núcleos têm instruções)
     unsigned n_ativos = 0;
     for (unsigned i = 0; i < cores.size(); i++) {
-        if (stats.insts[i] > 0) n_ativos++;
+        if (stats.insts[i].value() > 0) n_ativos++;
     }
     if (n_ativos >= minActive) {
         double cv_intervalo = resume(ipc).cv;
@@ -212,7 +213,7 @@ ImbalanceDetector::writeSeriesRow(unsigned core, bool partial,
 ImbalanceDetector::DetectorStats::DetectorStats(ImbalanceDetector *parent,
                                                 unsigned n)
     : statistics::Group(parent),
-      parent(parent)
+      det(parent),
       ADD_STAT(insts, statistics::units::Count::get(), "Instrucoes completadas na regiao, por nucleo"),
       ADD_STAT(activeTicks, statistics::units::Tick::get(), "Ticks com a CPU acordada na regiao, por nucleo"),
       ADD_STAT(activeSamples, statistics::units::Count::get(), "Amostras instantaneas em que o contexto estava ativo"),
@@ -262,15 +263,15 @@ ImbalanceDetector::DetectorStats::preDumpStats()
     // occupancy, ipcEff e ipcActive por núcleo
     Tick ticks_roi = curTick() - parent->roiStart;
     for (unsigned i = 0; i < n; i++) {
-        double oticks = ticks_roi / cpus[i]->clockPeriod();
-        occupancy[i] = (oticks > 0) ? (double)activeTicks[i] / oticks : 0;
-        ipcEff[i] = (oticks > 0) ? (double)insts[i] / oticks : 0;
-        ipcActive[i] = (activeTicks[i] > 0) ? (double)insts[i] / (activeTicks[i] / cpus[i]->clockPeriod()) : 0;
+        double oticks = ticks_roi / det->cpus[i]->clockPeriod();
+        occupancy[i] = (oticks > 0) ? (double)activeTicks[i].value() / oticks : 0;
+        ipcEff[i] = (oticks > 0) ? (double)insts[i].value() / oticks : 0;
+        ipcActive[i] = (activeTicks[i].value() > 0) ? (double)insts[i].value() / (activeTicks[i].value() / det->cpus[i]->clockPeriod()) : 0;
     }
 
     // Resumos de ipcEff
     std::vector<double> v_ipcEff(n);
-    for (unsigned i = 0; i < n; i++) v_ipcEff[i] = ipcEff[i];
+    for (unsigned i = 0; i < n; i++) v_ipcEff[i] = ipcEff[i].value();
     Resumo r = resume(v_ipcEff);
     ipcMean = r.media;
     ipcMax = r.max;
@@ -279,14 +280,14 @@ ImbalanceDetector::DetectorStats::preDumpStats()
 
     // CV de ipcActive
     std::vector<double> v_ipcActive(n);
-    for (unsigned i = 0; i < n; i++) v_ipcActive[i] = ipcActive[i];
+    for (unsigned i = 0; i < n; i++) v_ipcActive[i] = ipcActive[i].value();
     ipcActiveCV = resume(v_ipcActive).cv;
 
     // CV de insts e activeTicks
     std::vector<double> v_insts(n), v_act(n);
     for (unsigned i = 0; i < n; i++) {
-        v_insts[i] = insts[i];
-        v_act[i] = activeTicks[i];
+        v_insts[i] = insts[i].value();
+        v_act[i] = activeTicks[i].value();
     }
     instsCV = resume(v_insts).cv;
     activeCV = resume(v_act).cv;

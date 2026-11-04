@@ -67,6 +67,7 @@ class ImbalanceDetector : public SimObject
 
     struct DetectorStats : public statistics::Group
     {
+        ImbalanceDetector *det;
         DetectorStats(ImbalanceDetector *parent, unsigned n);
         void preDumpStats() override;
 
